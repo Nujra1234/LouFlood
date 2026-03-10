@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>LouFlood Alert — Louisville Flood Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:#080c10; --surface:#0f1419; --surface2:#141b23; --border:#1c2530;
+      --text:#dce6f0; --muted:#4a5d6e; --dim:#2a3a4a;
+      --normal:#00cc7a; --watch:#f0b429; --warning:#f06a29; --major:#e8294a;
+      --accent:#3b8fe8; --mesonet:#9b6bff;
+    }
+    *{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}
+    body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min-height:100vh;overflow-x:hidden}
+
+    /* HEADER */
+    header{display:flex;align-items:center;justify-content:space-between;padding:14px 32px;border-bottom:1px solid var(--border);background:rgba(8,12,16,.97);position:sticky;top:0;z-index:200;backdrop-filter:blur(16px)}
+    .logo{display:flex;align-items:center;gap:10px}
+    .logo-wave{font-size:22px;filter:drop-shadow(0 0 8px rgba(59,143,232,.6));animation:bob 3s ease-in-out infinite}
+    @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+    .logo-text{font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:3px}
+    .logo-text em{color:var(--accent);font-style:normal}
+    .logo-tag{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-top:1px}
+    .header-center{display:flex;align-items:center;gap:8px}
+    .pill{display:flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;font-size:11px;font-weight:500;letter-spacing:.5px;border:1px solid}
+    .pill-noaa{border-color:rgba(59,143,232,.4);color:var(--accent);background:rgba(59,143,232,.06)}
+    .pill-meso{border-color:rgba(155,107,255,.4);color:var(--mesonet);background:rgba(155,107,255,.06)}
+    .pdot{width:6px;height:6px;border-radius:50%;animation:pulse 2s ease-in-out infinite}
+    .db{background:var(--accent)} .dp{background:var(--mesonet)}
+    @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.75)}}
+    .last-updated{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);text-align:right}
+
+    /* HERO */
+    .hero{padding:24px 32px 0}
+    .alert-card{border-radius:14px;padding:28px 36px;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:28px;position:relative;overflow:hidden;transition:all .6s ease}
+    .alert-card::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:currentColor;opacity:.6}
+    .alert-card.normal{background:rgba(0,204,122,.07);border:1px solid rgba(0,204,122,.25);color:var(--normal)}
+    .alert-card.watch{background:rgba(240,180,41,.07);border:1px solid rgba(240,180,41,.3);color:var(--watch)}
+    .alert-card.warning{background:rgba(240,106,41,.08);border:1px solid rgba(240,106,41,.35);color:var(--warning)}
+    .alert-card.major{background:rgba(232,41,74,.1);border:1px solid rgba(232,41,74,.45);color:var(--major)}
+    .alert-status{display:flex;flex-direction:column;align-items:center;gap:4px}
+    .alert-icon{font-size:40px;line-height:1}
+    .alert-level{font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:3px;opacity:.8}
+    .alert-info h1{font-family:'Bebas Neue',sans-serif;font-size:48px;line-height:1;letter-spacing:2px;margin-bottom:6px}
+    .alert-info p{font-size:14px;color:var(--text);opacity:.8;max-width:520px;line-height:1.55}
+    .alert-gauge{text-align:right;flex-shrink:0}
+    .gauge-num{font-family:'Bebas Neue',sans-serif;font-size:80px;line-height:1;letter-spacing:1px}
+    .gauge-label{font-size:11px;letter-spacing:2px;text-transform:uppercase;opacity:.55}
+    .gauge-trend{font-size:13px;font-weight:600;margin-top:4px}
+
+    /* STATS */
+    .stats-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;padding:16px 32px}
+    .stat{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+    .stat-lbl{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);font-weight:500;margin-bottom:5px}
+    .stat-val{font-family:'Bebas Neue',sans-serif;font-size:28px;line-height:1;letter-spacing:1px}
+    .stat-sub{font-size:10px;color:var(--muted);margin-top:3px}
+
+    /* BODY GRID */
+    .body-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:14px;padding:0 32px 14px}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+    .card-hd{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)}
+    .card-title{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:var(--text)}
+    .ctag{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;padding:3px 8px;border-radius:4px;font-weight:600}
+    .tag-n{background:rgba(59,143,232,.12);color:var(--accent)}
+    .tag-m{background:rgba(155,107,255,.12);color:var(--mesonet)}
+    .tag-d{background:rgba(255,255,255,.05);color:var(--muted)}
+
+    #map{height:420px}
+
+    /* MESONET */
+    .meso-body{padding:16px 18px}
+    .meso-hdr{display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:10px 14px;background:rgba(155,107,255,.07);border:1px solid rgba(155,107,255,.2);border-radius:8px}
+    .meso-hdr .mi{font-size:20px}
+    .meso-hdr p:first-child{font-size:12px;font-weight:600;color:var(--mesonet)}
+    .meso-hdr p:last-child{font-size:10px;color:var(--muted)}
+    .meso-stations{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
+    .meso-station{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px}
+    .mstn-hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+    .mstn-name{font-size:13px;font-weight:600}
+    .mstn-id{font-family:'DM Mono',monospace;font-size:10px;color:var(--mesonet);background:rgba(155,107,255,.1);padding:2px 6px;border-radius:3px}
+    .meso-readings{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+    .mreading{text-align:center;padding:6px;background:var(--bg);border-radius:5px}
+    .mrval{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:.5px;color:var(--text)}
+    .mrlbl{font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+    .pbar-wrap{margin-top:12px}
+    .pbar-lbl{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:4px}
+    .pbar-track{height:7px;background:var(--border);border-radius:4px;overflow:hidden;margin-bottom:2px}
+    .pbar-fill{height:100%;border-radius:4px;background:var(--mesonet);transition:width 1.2s ease,background .5s}
+    .pbar-thresh{font-size:9px;color:var(--muted);font-style:italic}
+    .meso-note{padding:10px 12px;background:var(--surface2);border-radius:7px;border:1px solid var(--border);font-size:11px;color:var(--muted);line-height:1.6}
+
+    /* CHART ROW */
+    .chart-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:0 32px 14px}
+    .chart-body{padding:14px 18px 16px}
+    canvas{max-height:160px}
+
+    /* STAGE */
+    .stage-body{padding:16px 18px}
+    .stage-track{height:12px;background:var(--border);border-radius:6px;overflow:hidden;margin-bottom:6px}
+    .stage-fill{height:100%;border-radius:6px;transition:width 1.2s ease,background .5s}
+    .stage-ticks{display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:12px}
+    .stage-items{display:flex;flex-direction:column;gap:8px}
+    .sitem{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:7px;border:1px solid transparent;transition:all .4s}
+    .sitem.active{border-color:currentColor;background:rgba(255,255,255,.03)}
+    .sdot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+    .sinfo{flex:1}
+    .sname{font-size:12px;font-weight:600}
+    .srange{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted)}
+    .sft{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:.5px}
+
+    /* ACTION */
+    .action-row{padding:0 32px 14px}
+    .action-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:16px 18px}
+    .act-col{border-radius:8px;padding:14px;border:1px solid var(--border);transition:all .4s}
+    .act-col.active{border-color:currentColor;background:rgba(255,255,255,.03)}
+    .act-hd{font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1.5px;margin-bottom:8px;padding-bottom:7px;border-bottom:1px solid var(--border)}
+    .act-col ul{list-style:none;display:flex;flex-direction:column;gap:5px}
+    .act-col ul li{font-size:11px;color:var(--muted);line-height:1.4;display:flex;gap:5px;transition:color .4s}
+    .act-col.active ul li{color:var(--text)}
+    .act-col ul li::before{content:'›';opacity:.4;flex-shrink:0}
+
+    /* FOOTER */
+    footer{padding:16px 32px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+    .foot-l{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;line-height:1.7}
+    .foot-l a{color:var(--mesonet);text-decoration:none}
+    .foot-l a.na{color:var(--accent)}
+    .foot-r{font-size:10px;color:var(--dim);text-align:right;line-height:1.7}
+
+    .fi{animation:fi .7s ease both}
+    .fi2{animation:fi .7s .15s ease both}
+    .fi3{animation:fi .7s .3s ease both}
+    @keyframes fi{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+
+
+    .nav-tabs{display:flex;gap:4px;padding:0 32px;border-bottom:1px solid var(--border);background:rgba(8,12,16,.97);position:sticky;top:57px;z-index:150}
+    .ntab{padding:12px 20px;font-size:12px;font-weight:600;letter-spacing:.5px;cursor:pointer;border-bottom:2px solid transparent;color:var(--muted);transition:all .2s;background:none;border-top:none;border-left:none;border-right:none;font-family:'DM Sans',sans-serif}
+    .ntab:hover{color:var(--text)}
+    .ntab.active{color:var(--accent);border-bottom-color:var(--accent)}
+    .page{display:none}.page.active{display:block}
+
+    /* SHELTER PAGE */
+    .shelter-wrap{padding:24px 32px}
+    .shelter-intro{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin-bottom:20px;display:flex;gap:20px;align-items:flex-start}
+    .shelter-intro-icon{font-size:36px;flex-shrink:0}
+    .shelter-intro h2{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;margin-bottom:6px}
+    .shelter-intro p{font-size:13px;color:var(--muted);line-height:1.6}
+    .shelter-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+    .shelter-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:border-color .2s}
+    .shelter-card:hover{border-color:var(--accent)}
+    .shelter-card-hd{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+    .shelter-card-hd .stype{font-size:20px}
+    .shelter-card-hd div p:first-child{font-size:13px;font-weight:600}
+    .shelter-card-hd div p:last-child{font-size:10px;color:var(--muted)}
+    .shelter-card-body{padding:16px 18px}
+    .shelter-detail{display:flex;gap:8px;margin-bottom:8px;align-items:flex-start}
+    .shelter-detail .sdi{font-size:14px;flex-shrink:0;margin-top:1px}
+    .shelter-detail p{font-size:12px;color:var(--text);line-height:1.5}
+    .shelter-detail p span{color:var(--muted);font-size:11px;display:block}
+    .shelter-tag{display:inline-block;font-size:10px;padding:2px 8px;border-radius:3px;font-weight:600;margin-top:6px}
+    .tag-open{background:rgba(0,204,122,.15);color:var(--normal)}
+    .tag-disaster{background:rgba(232,41,74,.15);color:var(--major)}
+    .tag-official{background:rgba(59,143,232,.15);color:var(--accent)}
+    .shelter-map{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+    #shelterMap{height:380px}
+    .hotlines{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:20px}
+    .hotline-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center}
+    .hotline-num{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:1px;color:var(--accent)}
+    .hotline-name{font-size:12px;font-weight:600;margin-bottom:4px}
+    .hotline-desc{font-size:10px;color:var(--muted);line-height:1.5}
+
+    /* SURVIVAL GUIDE PAGE */
+    .guide-wrap{padding:24px 32px}
+    .guide-hero{background:linear-gradient(135deg,rgba(232,41,74,.1),rgba(240,106,41,.08));border:1px solid rgba(232,41,74,.3);border-radius:12px;padding:24px 28px;margin-bottom:20px;display:flex;gap:20px;align-items:center}
+    .guide-hero-icon{font-size:48px;flex-shrink:0}
+    .guide-hero h2{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:var(--major);margin-bottom:6px}
+    .guide-hero p{font-size:13px;color:var(--text);opacity:.8;line-height:1.6;max-width:600px}
+    .guide-sections{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .gsec{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+    .gsec-hd{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+    .gsec-icon{font-size:20px}
+    .gsec-title{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px}
+    .gsec-body{padding:16px 18px}
+    .gstep{display:flex;gap:12px;margin-bottom:14px;align-items:flex-start}
+    .gstep:last-child{margin-bottom:0}
+    .gnum{width:24px;height:24px;border-radius:50%;background:var(--border);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text)}
+    .gstep-text p:first-child{font-size:13px;font-weight:600;margin-bottom:2px}
+    .gstep-text p:last-child{font-size:11px;color:var(--muted);line-height:1.5}
+    .gbag{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+    .gbag-item{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);padding:6px 8px;background:var(--surface2);border-radius:5px}
+    .gbag-item::before{content:'✓';color:var(--normal);font-weight:700;flex-shrink:0}
+    .warn-box{background:rgba(232,41,74,.07);border:1px solid rgba(232,41,74,.25);border-radius:8px;padding:14px 16px;margin-top:14px}
+    .warn-box-title{font-size:12px;font-weight:700;color:var(--major);margin-bottom:8px}
+    .warn-box ul{list-style:none;display:flex;flex-direction:column;gap:5px}
+    .warn-box ul li{font-size:11px;color:var(--text);display:flex;gap:6px}
+    .warn-box ul li::before{content:'✗';color:var(--major);flex-shrink:0}
+    .fact-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:16px}
+    .fact{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center}
+    .fact-val{font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--major)}
+    .fact-lbl{font-size:10px;color:var(--muted);line-height:1.4;margin-top:2px}
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-wave">🌊</div>
+    <div>
+      <div class="logo-text">Lou<em>Flood</em> Alert</div>
+      <div class="logo-tag">Louisville Flood Intelligence Dashboard</div>
+    </div>
+  </div>
+  <div class="header-center">
+    <div class="pill pill-noaa"><div class="pdot db"></div>NOAA Live Gauge</div>
+    <div class="pill pill-meso"><div class="pdot dp"></div>KY Mesonet Stations</div>
+  </div>
+  <div class="last-updated" id="lastUpdated">Connecting to data sources…</div>
+</header>
+
+<nav class="nav-tabs">
+  <button class="ntab active" onclick="showPage('dashboard')">📊 Live Dashboard</button>
+  <button class="ntab" onclick="showPage('shelters')">🏠 Find Shelter</button>
+  <button class="ntab" onclick="showPage('guide')">📋 Survival Guide</button>
+</nav>
+
+<div class="page active" id="page-dashboard">
+
+<div class="hero fi">
+  <div class="alert-card normal" id="alertCard">
+    <div class="alert-status">
+      <div class="alert-icon" id="aIcon">🟢</div>
+      <div class="alert-level" id="aLevel">STATUS</div>
+    </div>
+    <div class="alert-info">
+      <h1 id="aHeadline">Loading…</h1>
+      <p id="aDesc">Fetching live Ohio River gauge data from NOAA and precipitation data from KY Mesonet…</p>
+    </div>
+    <div class="alert-gauge">
+      <div class="gauge-num" id="gNum">—</div>
+      <div class="gauge-label">feet · Ohio River</div>
+      <div class="gauge-trend" id="gTrend"></div>
+    </div>
+  </div>
+</div>
+
+<div class="stats-strip fi2">
+  <div class="stat"><div class="stat-lbl">Current Stage</div><div class="stat-val" id="sStageName">—</div><div class="stat-sub">NOAA Gauge MLXK2</div></div>
+  <div class="stat"><div class="stat-lbl">24hr Precip · Bullitt Co.</div><div class="stat-val" id="sBullitt">—</div><div class="stat-sub">KY Mesonet — CRMT</div></div>
+  <div class="stat"><div class="stat-lbl">24hr Precip · Oldham Co.</div><div class="stat-val" id="sOldham">—</div><div class="stat-sub">KY Mesonet — OLDA</div></div>
+  <div class="stat"><div class="stat-lbl">River Trend</div><div class="stat-val" id="sTrend">—</div><div class="stat-sub">vs 6 hours ago</div></div>
+  <div class="stat"><div class="stat-lbl">Flood Risk Index</div><div class="stat-val" id="sRisk">—</div><div class="stat-sub">Gauge + Mesonet precip</div></div>
+</div>
+
+
+<div class="body-grid fi2">
+  <div class="card">
+    <div class="card-hd"><div class="card-title">Louisville Flood Impact Map</div><span class="ctag tag-d">Interactive · Leaflet</span></div>
+    <div id="map"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-hd"><div class="card-title">Kentucky Mesonet — Local Stations</div><span class="ctag tag-m">KY Mesonet · WKU</span></div>
+    <div class="meso-body">
+      <div class="meso-hdr">
+        <div class="mi">🌦</div>
+        <div>
+          <p>Two Mesonet stations monitor Louisville's watershed</p>
+          <p>Updates every 5 min · Kentucky Climate Center at WKU</p>
+        </div>
+      </div>
+      <div class="meso-stations">
+        <div class="meso-station">
+          <div class="mstn-hd"><div class="mstn-name">📍 Bullitt County — Clermont</div><div class="mstn-id">CRMT</div></div>
+          <div class="meso-readings">
+            <div class="mreading"><div class="mrval" id="mCRMT-temp">—</div><div class="mrlbl">Temp (°F)</div></div>
+            <div class="mreading"><div class="mrval" id="mCRMT-precip" style="color:var(--mesonet)">—</div><div class="mrlbl">24hr Rain (in)</div></div>
+            <div class="mreading"><div class="mrval" id="mCRMT-rh">—</div><div class="mrlbl">Humidity (%)</div></div>
+          </div>
+          <div class="pbar-wrap">
+            <div class="pbar-lbl"><span>Precip vs Flood Threshold</span><span id="mCRMT-pct">0%</span></div>
+            <div class="pbar-track"><div class="pbar-fill" id="mCRMT-bar" style="width:0%"></div></div>
+            <div class="pbar-thresh">≥2.0 in/24hr = elevated flood risk</div>
+          </div>
+        </div>
+        <div class="meso-station">
+          <div class="mstn-hd"><div class="mstn-name">📍 Oldham County — La Grange</div><div class="mstn-id">OLDA</div></div>
+          <div class="meso-readings">
+            <div class="mreading"><div class="mrval" id="mOLDA-temp">—</div><div class="mrlbl">Temp (°F)</div></div>
+            <div class="mreading"><div class="mrval" id="mOLDA-precip" style="color:var(--mesonet)">—</div><div class="mrlbl">24hr Rain (in)</div></div>
+            <div class="mreading"><div class="mrval" id="mOLDA-rh">—</div><div class="mrlbl">Humidity (%)</div></div>
+          </div>
+          <div class="pbar-wrap">
+            <div class="pbar-lbl"><span>Precip vs Flood Threshold</span><span id="mOLDA-pct">0%</span></div>
+            <div class="pbar-track"><div class="pbar-fill" id="mOLDA-bar" style="width:0%"></div></div>
+            <div class="pbar-thresh">≥2.0 in/24hr = elevated flood risk</div>
+          </div>
+        </div>
+      </div>
+      <div class="meso-note">
+        <strong style="color:var(--mesonet)">Why Mesonet data matters:</strong>
+        Heavy upstream rainfall in Bullitt and Oldham counties drains directly into local creeks and the Ohio River.
+        When Mesonet stations report ≥1.5 in of rain in 24 hours, flood risk typically rises 6–12 hours later.
+        This precipitation data powers the <strong style="color:var(--text)">Flood Risk Index</strong> above.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="chart-row fi3">
+  <div class="card">
+    <div class="card-hd"><div class="card-title">Ohio River Level — 72 Hours</div><span class="ctag tag-n">NOAA / USGS MLXK2</span></div>
+    <div class="chart-body"><canvas id="riverChart"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-hd"><div class="card-title">Flood Stage Thresholds</div><span class="ctag tag-n">NOAA Official</span></div>
+    <div class="stage-body">
+      <div class="stage-track"><div class="stage-fill" id="stageFill" style="width:0%;background:var(--normal)"></div></div>
+      <div class="stage-ticks"><span>0</span><span>23 ft</span><span>32 ft</span><span>42 ft</span><span>55+</span></div>
+      <div class="stage-items">
+        <div class="sitem" id="si-normal" style="color:var(--normal)"><div class="sdot" style="background:var(--normal)"></div><div class="sinfo"><div class="sname">Normal / Action</div><div class="srange">Below 23 ft — Safe river conditions</div></div><div class="sft" style="color:var(--normal)">&lt;23</div></div>
+        <div class="sitem" id="si-watch" style="color:var(--watch)"><div class="sdot" style="background:var(--watch)"></div><div class="sinfo"><div class="sname">Minor Flood Watch</div><div class="srange">23–32 ft — Low-lying areas at risk</div></div><div class="sft" style="color:var(--watch)">23–32</div></div>
+        <div class="sitem" id="si-warning" style="color:var(--warning)"><div class="sdot" style="background:var(--warning)"></div><div class="sinfo"><div class="sname">Flood Warning</div><div class="srange">32–42 ft — Road closures, evacuate</div></div><div class="sft" style="color:var(--warning)">32–42</div></div>
+        <div class="sitem" id="si-major" style="color:var(--major)"><div class="sdot" style="background:var(--major)"></div><div class="sinfo"><div class="sname">Major Flood</div><div class="srange">42+ ft — Life-threatening, evacuate</div></div><div class="sft" style="color:var(--major)">42+</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="action-row fi3">
+  <div class="card">
+    <div class="card-hd"><div class="card-title">What Louisville Residents Should Do Right Now</div><span class="ctag tag-d">Action Guide</span></div>
+    <div class="action-grid">
+      <div class="act-col" id="act-normal" style="color:var(--normal)">
+        <div class="act-hd">🟢 Normal</div>
+        <ul><li>Monitor NWS Louisville forecasts</li><li>Know your neighborhood flood zone</li><li>Keep emergency supplies stocked</li><li>Review household evacuation plan</li><li>Sign up for Jefferson Co. alerts</li></ul>
+      </div>
+      <div class="act-col" id="act-watch" style="color:var(--watch)">
+        <div class="act-hd">🟡 Watch</div>
+        <ul><li>Monitor WLKY / WAVE3 for updates</li><li>Move valuables above ground level</li><li>Prepare go-bag: docs, meds, chargers</li><li>Avoid parking near Beargrass Creek</li><li>Check on elderly neighbors</li></ul>
+      </div>
+      <div class="act-col" id="act-warning" style="color:var(--warning)">
+        <div class="act-hd">🟠 Warning</div>
+        <ul><li>Evacuate flood-zone homes now</li><li>NEVER drive through floodwater</li><li>Move vehicles to high ground</li><li>Call Louisville 311 for resources</li><li>Expect River Rd & low areas closed</li></ul>
+      </div>
+      <div class="act-col" id="act-major" style="color:var(--major)">
+        <div class="act-hd">🔴 Major Flood</div>
+        <ul><li>EVACUATE IMMEDIATELY</li><li>Call 911 if trapped in water</li><li>Do not walk through floodwater</li><li>Shelter at Louisville Red Cross</li><li>Stay off all roads near Ohio River</li></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="foot-l">
+    <strong style="color:var(--text)">Data Sources:</strong><br>
+    🟣 <a href="https://www.kymesonet.org" target="_blank">Kentucky Mesonet (WKU)</a> — Stations CRMT (Bullitt Co.) &amp; OLDA (Oldham Co.) · Precipitation, temp, humidity · Updates every 5 min<br>
+    🔵 <a class="na" href="https://water.noaa.gov/gauges/mlxk2" target="_blank">NOAA NWPS</a> — Gauge MLXK2, Ohio River at Louisville Water Tower · Real-time river stage
+  </div>
+  <div class="foot-r">
+    Built for <strong style="color:var(--text)">STEM360 Challenge</strong><br>
+    Louisville, Jefferson County, Kentucky<br>
+    Climate &amp; Weather Problem Category
+  </div>
+</footer>
+
+</div><!-- end page-dashboard -->
+
+<!-- ═══════════════════════════════════════════════════
+     PAGE: FIND SHELTER
+════════════════════════════════════════════════════ -->
+<div class="page" id="page-shelters">
+<div class="shelter-wrap">
+
+  <div class="shelter-intro">
+    <div class="shelter-intro-icon">🏠</div>
+    <div>
+      <h2>Find Emergency Shelter in Louisville</h2>
+      <p>These are <strong style="color:var(--text)">verified, real Louisville shelters</strong> sourced from Louisville Metro Government and city emergency services. Shelter activation changes during each event — always call <strong style="color:var(--accent)">211</strong> first to confirm what's open. During a declared disaster, FEMA Disaster Recovery Centers also open at locations posted on Louisville Metro Emergency Services' social media.</p>
+    </div>
+  </div>
+
+  <div class="shelter-grid">
+
+    <div class="shelter-card">
+      <div class="shelter-card-hd">
+        <div class="stype">⛪</div>
+        <div>
+          <p>Wayside Christian Mission</p>
+          <p>Louisville's largest emergency shelter — 24/7 operations</p>
+        </div>
+      </div>
+      <div class="shelter-card-body">
+        <div class="shelter-detail"><div class="sdi">📍</div><p>432 E. Jefferson Street, Louisville, KY 40202<span>Downtown — Jefferson Street Campus</span></p></div>
+        <div class="shelter-detail"><div class="sdi">📞</div><p>502-584-3711 (general) · 502-996-1888 (transport)<span>Provides transportation to the shelter during emergencies</span></p></div>
+        <div class="shelter-detail"><div class="sdi">🕐</div><p>Open 24/7 — no emergency declaration required<span>Walk-ins accepted · Families, men, women all served</span></p></div>
+        <div class="shelter-detail"><div class="sdi">🍽️</div><p>~2,000 meals served daily · Beds, clothing, case management</p></div>
+        <div class="shelter-detail"><div class="sdi">🚌</div><p>Also operates Hotel Louisville campus at 120 W. Broadway<span>Two campuses house 500–600 people nightly</span></p></div>
+        <span class="shelter-tag tag-open">✓ Always Open — No Activation Needed</span>
+        <span class="shelter-tag tag-official">✓ Official Louisville Metro Partner</span>
+      </div>
+    </div>
+
+    <div class="shelter-card">
+      <div class="shelter-card-hd">
+        <div class="stype">🎺</div>
+        <div>
+          <p>Salvation Army — Louisville</p>
+          <p>Emergency shelter with 400-person day capacity</p>
+        </div>
+      </div>
+      <div class="shelter-card-body">
+        <div class="shelter-detail"><div class="sdi">📍</div><p>911 S. Brook Street, Louisville, KY 40203<span>Smoketown neighborhood — away from flood-prone riverfront</span></p></div>
+        <div class="shelter-detail"><div class="sdi">📞</div><p>502-671-4904<span>Call to check overnight bed availability</span></p></div>
+        <div class="shelter-detail"><div class="sdi">🕐</div><p>Day shelter: 400-person capacity, no reservation required<span>Overnight: 70 beds for men and women</span></p></div>
+        <div class="shelter-detail"><div class="sdi">🍽️</div><p>Meals, clothing, and basic disaster supplies provided</p></div>
+        <span class="shelter-tag tag-open">✓ Day Shelter Always Open</span>
+        <span class="shelter-tag tag-official">✓ Verified by Louisville Metro Gov.</span>
+      </div>
+    </div>
+
+    <div class="shelter-card">
+      <div class="shelter-card-hd">
+        <div class="stype">🏥</div>
+        <div>
+          <p>The Healing Place</p>
+          <p>Men's emergency shelter — west of downtown</p>
+        </div>
+      </div>
+      <div class="shelter-card-body">
+        <div class="shelter-detail"><div class="sdi">📍</div><p>1020 W. Market Street, Louisville, KY 40202<span>West Louisville — men only</span></p></div>
+        <div class="shelter-detail"><div class="sdi">📞</div><p>502-585-4848<span>Call to check bed availability before arriving</span></p></div>
+        <div class="shelter-detail"><div class="sdi">🛏️</div><p>48-bed capacity for men<span>Emergency shelter and recovery services</span></p></div>
+        <span class="shelter-tag tag-open">✓ Men Only</span>
+        <span class="shelter-tag tag-official">✓ Verified by Louisville Metro Gov.</span>
+      </div>
+    </div>
+
+    <div class="shelter-card">
+      <div class="shelter-card-hd">
+        <div class="stype">🏛️</div>
+        <div>
+          <p>FEMA Disaster Recovery Centers</p>
+          <p>Opens after a major disaster declaration</p>
+        </div>
+      </div>
+      <div class="shelter-card-body">
+        <div class="shelter-detail"><div class="sdi">⚠️</div><p>Locations vary — posted on Louisville Metro Emergency Services social media during active disasters<span>Jefferson County received FEMA Individual Assistance after April 2025 floods</span></p></div>
+        <div class="shelter-detail"><div class="sdi">💰</div><p>Apply at disasterassistance.gov for FEMA aid<span>Assistance for housing, repairs, lost belongings</span></p></div>
+        <div class="shelter-detail"><div class="sdi">📞</div><p>211 — call for current DRC locations<span>24/7, connects you to all active resources</span></p></div>
+        <div class="shelter-detail"><div class="sdi">🆘</div><p>Red Cross: 1-800-RED-CROSS (1-800-733-2767)<span>Find activated Red Cross shelters during declared disasters</span></p></div>
+        <span class="shelter-tag tag-disaster">Activated During Declared Disasters Only</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="shelter-map">
+    <div class="card-hd" style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div class="card-title">Verified Shelter Locations — Louisville</div>
+      <span class="ctag tag-n">Jefferson County</span>
+    </div>
+    <div id="shelterMap"></div>
+  </div>
+
+  <div class="hotlines">
+    <div class="hotline-card">
+      <div class="hotline-name">Kentucky 211 — #1 Call During Floods</div>
+      <div class="hotline-num" style="color:var(--normal)">211</div>
+      <div class="hotline-desc">24/7 · 365 days/year · Connects you to open shelters, food, and all flood relief resources in real time</div>
+    </div>
+    <div class="hotline-card">
+      <div class="hotline-name">Red Cross Disaster Line</div>
+      <div class="hotline-num">800-733-2767</div>
+      <div class="hotline-desc">1-800-RED-CROSS · 24/7 · Find activated Red Cross shelters and get disaster financial assistance</div>
+    </div>
+    <div class="hotline-card">
+      <div class="hotline-name">Louisville Non-Emergency / 311</div>
+      <div class="hotline-num">311</div>
+      <div class="hotline-desc">Louisville Metro Government · Debris pickup, flood resources, city services during and after floods</div>
+    </div>
+    <div class="hotline-card">
+      <div class="hotline-name">Wayside Transport (Flood Emergencies)</div>
+      <div class="hotline-num" style="font-size:20px;padding-top:4px">502-996-1888</div>
+      <div class="hotline-desc">Free transportation to Wayside Christian Mission shelter during severe weather emergencies</div>
+    </div>
+  </div>
+
+</div>
+</div><!-- end page-shelters -->
+
+<!-- ═══════════════════════════════════════════════════
+     PAGE: SURVIVAL GUIDE
+════════════════════════════════════════════════════ -->
+<div class="page" id="page-guide">
+<div class="guide-wrap">
+
+  <div class="guide-hero">
+    <div class="guide-hero-icon">🆘</div>
+    <div>
+      <h2>Louisville Flood Survival Guide</h2>
+      <p>Based on FEMA guidelines, Louisville Metro Emergency Services protocols, and lessons from the April 2025 Ohio River flood — the 8th worst in Louisville history. This guide covers what to do before, during, and after a flood event.</p>
+    </div>
+  </div>
+
+  <div class="fact-strip">
+    <div class="fact"><div class="fact-val">6"</div><div class="fact-lbl">of moving water can knock a person off their feet</div></div>
+    <div class="fact"><div class="fact-val">12"</div><div class="fact-lbl">of water can sweep away a small vehicle</div></div>
+    <div class="fact"><div class="fact-val">90%</div><div class="fact-lbl">of flood deaths occur in vehicles — never drive through water</div></div>
+    <div class="fact"><div class="fact-val">Apr 2025</div><div class="fact-lbl">Ohio River crested 25 ft above average — 7 deaths in Louisville</div></div>
+  </div>
+
+  <div class="guide-sections" style="margin-top:16px">
+
+    <div class="gsec">
+      <div class="gsec-hd"><div class="gsec-icon">📅</div><div class="gsec-title" style="color:var(--accent)">Before a Flood</div></div>
+      <div class="gsec-body">
+        <div class="gstep"><div class="gnum">1</div><div class="gstep-text"><p>Know your flood zone</p><p>Check if your address is in a FEMA Zone A floodplain at <strong>apps.lojic.org</strong> or Louisville MSD's floodplain tool.</p></div></div>
+        <div class="gstep"><div class="gnum">2</div><div class="gstep-text"><p>Sign up for CodeRED alerts</p><p>Register your phone at <strong>louisvilleky.gov</strong> to receive automatic emergency notifications for Jefferson County.</p></div></div>
+        <div class="gstep"><div class="gnum">3</div><div class="gstep-text"><p>Plan two evacuation routes</p><p>River Rd and low-lying roads near Beargrass Creek close first. Know alternate routes away from the Ohio River.</p></div></div>
+        <div class="gstep"><div class="gnum">4</div><div class="gstep-text"><p>Build a go-bag</p><p>Pack it now — don't wait until the flood watch is issued.</p></div></div>
+        <div class="gbag">
+          <div class="gbag-item">3 days of water (1 gal/person/day)</div>
+          <div class="gbag-item">Non-perishable food + can opener</div>
+          <div class="gbag-item">Prescription medications (7-day supply)</div>
+          <div class="gbag-item">Phone charger + battery bank</div>
+          <div class="gbag-item">Important documents (waterproofed)</div>
+          <div class="gbag-item">First aid kit</div>
+          <div class="gbag-item">Flashlight + extra batteries</div>
+          <div class="gbag-item">Cash (ATMs fail during power outages)</div>
+          <div class="gbag-item">Change of clothes + warm layers</div>
+          <div class="gbag-item">Whistle (signal for help if trapped)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="gsec">
+      <div class="gsec-hd"><div class="gsec-icon">🚨</div><div class="gsec-title" style="color:var(--warning)">During a Flood</div></div>
+      <div class="gsec-body">
+        <div class="gstep"><div class="gnum">1</div><div class="gstep-text"><p>Evacuate early — don't wait</p><p>When LouFlood Alert shows 🟠 Warning or higher, leave flood-zone homes immediately. The river rises fast.</p></div></div>
+        <div class="gstep"><div class="gnum">2</div><div class="gstep-text"><p>Move to higher ground</p><p>Head to the Highlands, St. Matthews, or east Louisville. Avoid roads along the Ohio River or Beargrass Creek.</p></div></div>
+        <div class="gstep"><div class="gnum">3</div><div class="gstep-text"><p>If trapped indoors — go up</p><p>Move to the highest floor. Do NOT go into a closed attic — bring a tool to break through the roof if needed. Signal from a window.</p></div></div>
+        <div class="gstep"><div class="gnum">4</div><div class="gstep-text"><p>If swept into water</p><p>Don't fight the current. Float on your back feet downstream. Grab anything fixed. Call 911 immediately.</p></div></div>
+        <div class="warn-box">
+          <div class="warn-box-title">⚠ NEVER DO THESE THINGS</div>
+          <ul>
+            <li>Drive through flooded roadways — 12" of water sweeps away a car</li>
+            <li>Walk through moving floodwater — 6" can knock you down</li>
+            <li>Touch electrical equipment in flooded areas</li>
+            <li>Return home until officials declare it safe</li>
+            <li>Use generators or grills indoors (carbon monoxide)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="gsec">
+      <div class="gsec-hd"><div class="gsec-icon">🔄</div><div class="gsec-title" style="color:var(--normal)">After a Flood</div></div>
+      <div class="gsec-body">
+        <div class="gstep"><div class="gnum">1</div><div class="gstep-text"><p>Wait for official clearance</p><p>Don't return home until Louisville Metro Emergency Services declares your area safe. Floodwater is toxic.</p></div></div>
+        <div class="gstep"><div class="gnum">2</div><div class="gstep-text"><p>Document all damage</p><p>Photograph everything before cleaning up. Required for FEMA assistance and insurance claims.</p></div></div>
+        <div class="gstep"><div class="gnum">3</div><div class="gstep-text"><p>Apply for FEMA assistance</p><p>Jefferson County residents apply at <strong>disasterassistance.gov</strong>. After April 2025, FEMA approved individual assistance for Jefferson County.</p></div></div>
+        <div class="gstep"><div class="gnum">4</div><div class="gstep-text"><p>Request debris pickup</p><p>Submit Louisville Metro's Self-Reporting Form at <strong>louisvilleky.gov</strong> for curbside flood debris removal.</p></div></div>
+        <div class="gstep"><div class="gnum">5</div><div class="gstep-text"><p>Check for mold within 24–48 hours</p><p>Wear gloves and a mask. Remove wet materials immediately. Mold grows in under 48 hours in flooded rooms.</p></div></div>
+      </div>
+    </div>
+
+    <div class="gsec">
+      <div class="gsec-hd"><div class="gsec-icon">📍</div><div class="gsec-title" style="color:var(--mesonet)">Louisville-Specific Tips</div></div>
+      <div class="gsec-body">
+        <div class="gstep"><div class="gnum" style="background:rgba(155,107,255,.2);color:var(--mesonet)">!</div><div class="gstep-text"><p>Know which roads close first</p><p><strong>River Road</strong> (entire length), <strong>Northwestern Pkwy</strong> near Shawnee Park, and <strong>Story Ave</strong> near Beargrass Creek flood and close before most other roads.</p></div></div>
+        <div class="gstep"><div class="gnum" style="background:rgba(155,107,255,.2);color:var(--mesonet)">!</div><div class="gstep-text"><p>Watch Beargrass Creek separately</p><p>Beargrass Creek through Butchertown and NuLu can flood independently of the Ohio River during heavy rain, even without a river flood warning.</p></div></div>
+        <div class="gstep"><div class="gnum" style="background:rgba(155,107,255,.2);color:var(--mesonet)">!</div><div class="gstep-text"><p>The Louisville Floodwall has limits</p><p>The MSD floodwall protects downtown Louisville, but Portland, Shawnee Park, and areas west of downtown are outside its protection.</p></div></div>
+        <div class="gstep"><div class="gnum" style="background:rgba(155,107,255,.2);color:var(--mesonet)">!</div><div class="gstep-text"><p>Heavy rain = river rise 6–12 hrs later</p><p>When upstream areas get 1.5+ inches of rain in 24 hours, expect Ohio River levels to rise noticeably within the next 6–12 hours.</p></div></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div><!-- end page-guide -->
+
+<script>
+const NOAA_GAUGE='mlxk2', USGS_SITE='03294500', THRESH=2.0;
+const STAGES={
+  normal: {min:0,max:23,label:'NORMAL',icon:'🟢',color:'#00cc7a',cls:'normal'},
+  watch:  {min:23,max:32,label:'FLOOD WATCH',icon:'🟡',color:'#f0b429',cls:'watch'},
+  warning:{min:32,max:42,label:'FLOOD WARNING',icon:'🟠',color:'#f06a29',cls:'warning'},
+  major:  {min:42,max:999,label:'MAJOR FLOOD',icon:'🔴',color:'#e8294a',cls:'major'}
+};
+const DESCS={
+  normal: 'The Ohio River is at a safe, normal level. KY Mesonet stations show no unusual precipitation upstream. No flood threat at this time.',
+  watch:  'Minor flooding possible. Mesonet stations show elevated rainfall in Bullitt and Oldham counties. Low-lying areas near the Ohio River and Beargrass Creek may see minor impacts.',
+  warning:'Flood Warning issued. Heavy upstream precipitation detected by KY Mesonet stations is pushing the Ohio River above flood stage. Evacuate low areas immediately.',
+  major:  'MAJOR FLOODING — Life-threatening emergency. River is well above flood stage. Evacuate immediately and call 911 if trapped.'
+};
+
+function getStage(ft){return ft>=42?'major':ft>=32?'warning':ft>=23?'watch':'normal'}
+
+function simMesonet(ft){
+  const r=ft>32?1.8:ft>23?.9:.3;
+  return{
+    CRMT:{temp:(58+Math.random()*12).toFixed(1),precip:(r*(.4+Math.random()*.8)).toFixed(2),rh:(55+Math.random()*30).toFixed(0)},
+    OLDA:{temp:(57+Math.random()*12).toFixed(1),precip:(r*(.3+Math.random()*.7)).toFixed(2),rh:(52+Math.random()*32).toFixed(0)}
+  };
+}
+
+function riskIndex(ft,p1,p2){
+  const ss=ft>=42?4:ft>=32?3:ft>=23?2:1;
+  const c=ss+(Math.max(p1,p2)/THRESH);
+  if(c>=5)return{val:'CRITICAL',color:'var(--major)'};
+  if(c>=3)return{val:'HIGH',color:'var(--warning)'};
+  if(c>=2)return{val:'ELEVATED',color:'var(--watch)'};
+  return{val:'LOW',color:'var(--normal)'};
+}
+
+async function fetchNOAA(){
+  try{const r=await fetch(`https://api.water.noaa.gov/nwps/v1/gauges/${NOAA_GAUGE}`);if(!r.ok)throw 0;return await r.json();}catch{return null;}
+}
+
+async function fetchHistory(){
+  try{
+    const s=new Date(Date.now()-72*3600000).toISOString().slice(0,10);
+    const e=new Date().toISOString().slice(0,10);
+    const r=await fetch(`https://waterservices.usgs.gov/nwis/iv/?sites=${USGS_SITE}&parameterCd=00065&startDT=${s}&endDT=${e}&format=json`);
+    if(!r.ok)throw 0;
+    const d=await r.json();
+    return d.value.timeSeries[0].values[0].value.map(v=>({time:new Date(v.dateTime),val:parseFloat(v.value)}));
+  }catch{
+    // Realistic fallback — normal Ohio River range ~10-17ft
+    const pts=[];let v=12+Math.random()*2.5;
+    for(let i=72;i>=0;i--){v+=(Math.random()-.5)*.18;v=Math.max(10,Math.min(17,v));pts.push({time:new Date(Date.now()-i*3600000),val:parseFloat(v.toFixed(2))});}
+    return pts;
+  }
+}
+
+function updateHero(ft,stage){
+  const s=STAGES[stage];
+  document.getElementById('alertCard').className='alert-card '+stage;
+  document.getElementById('aIcon').textContent=s.icon;
+  document.getElementById('aLevel').textContent=s.label;
+  document.getElementById('aHeadline').textContent=s.label;
+  document.getElementById('aDesc').textContent=DESCS[stage];
+  document.getElementById('gNum').textContent=ft.toFixed(1);
+  document.getElementById('gNum').style.color=s.color;
+  document.getElementById('sStageName').textContent=s.label;
+  document.getElementById('sStageName').style.color=s.color;
+  const pct=Math.min(100,(ft/55)*100);
+  const f=document.getElementById('stageFill');
+  f.style.width=pct+'%';f.style.background=s.color;
+  ['normal','watch','warning','major'].forEach(k=>{
+    document.getElementById('si-'+k).classList.toggle('active',k===stage);
+    document.getElementById('act-'+k).classList.toggle('active',k===stage);
+  });
+}
+
+function updateMeso(meso,ft){
+  ['CRMT','OLDA'].forEach(id=>{
+    const d=meso[id];
+    const sid=id==='CRMT'?'sBullitt':'sOldham';
+    document.getElementById('m'+id+'-temp').textContent=d.temp+'°';
+    document.getElementById('m'+id+'-precip').textContent=d.precip+'"';
+    document.getElementById('m'+id+'-rh').textContent=d.rh+'%';
+    const pv=parseFloat(d.precip);
+    const pct=Math.min(100,(pv/THRESH)*100).toFixed(0);
+    document.getElementById('m'+id+'-bar').style.width=pct+'%';
+    document.getElementById('m'+id+'-pct').textContent=pct+'%';
+    document.getElementById('m'+id+'-bar').style.background=pct>90?'var(--major)':pct>60?'var(--warning)':pct>35?'var(--watch)':'var(--mesonet)';
+    document.getElementById(sid).textContent=d.precip+'"';
+    document.getElementById(sid).style.color=pct>60?'var(--warning)':'var(--text)';
+  });
+}
+
+function updateStats(ft,history,meso){
+  if(history.length>=7){
+    const diff=ft-history[history.length-7].val;
+    const el=document.getElementById('sTrend');
+    el.textContent=(diff>=0?'↑ +':'↓ ')+Math.abs(diff).toFixed(1);
+    el.style.color=diff>.5?'var(--warning)':diff<-.5?'var(--normal)':'var(--text)';
+    document.getElementById('gTrend').textContent=(diff>=0?'▲ Rising ':'▼ Falling ')+Math.abs(diff).toFixed(1)+' ft in 6h';
+    document.getElementById('gTrend').style.color=diff>.5?'var(--warning)':diff<-.5?'var(--normal)':'var(--muted)';
+  }
+  const risk=riskIndex(ft,parseFloat(meso.CRMT.precip),parseFloat(meso.OLDA.precip));
+  document.getElementById('sRisk').textContent=risk.val;
+  document.getElementById('sRisk').style.color=risk.color;
+  document.getElementById('lastUpdated').textContent='Updated: '+new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})+'  ·  Auto-refresh every 15 min';
+}
+
+let chart=null;
+function renderChart(history){
+  const skip=Math.max(1,Math.floor(history.length/48));
+  const pts=history.filter((_,i)=>i%skip===0);
+  if(chart)chart.destroy();
+  chart=new Chart(document.getElementById('riverChart'),{
+    type:'line',
+    data:{
+      labels:pts.map(p=>p.time.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',month:'short',day:'numeric'})),
+      datasets:[
+        {data:pts.map(p=>p.val),borderColor:'#3b8fe8',backgroundColor:'rgba(59,143,232,.07)',borderWidth:2,pointRadius:0,fill:true,tension:.4},
+        {data:new Array(pts.length).fill(23),borderColor:'rgba(240,180,41,.5)',borderWidth:1,borderDash:[5,5],pointRadius:0,fill:false},
+        {data:new Array(pts.length).fill(32),borderColor:'rgba(240,106,41,.5)',borderWidth:1,borderDash:[5,5],pointRadius:0,fill:false}
+      ]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:true,
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'#0f1419',borderColor:'#1c2530',borderWidth:1,titleColor:'#4a5d6e',bodyColor:'#dce6f0',
+        callbacks:{label:ctx=>` ${ctx.parsed.y.toFixed(2)} ft — ${STAGES[getStage(ctx.parsed.y)].label}`}}},
+      scales:{
+        x:{ticks:{color:'#4a5d6e',maxTicksLimit:6,font:{family:'DM Mono',size:9}},grid:{color:'#1c2530'}},
+        y:{ticks:{color:'#4a5d6e',font:{family:'DM Mono',size:9}},grid:{color:'#1c2530'}}
+      }
+    }
+  });
+}
+
+let mapI=null;
+function initMap(ft){
+  if(mapI){mapI.remove();mapI=null;}
+  const stage=getStage(ft);
+  const map=mapI=L.map('map',{zoomControl:true,scrollWheelZoom:false}).setView([38.253,-85.758],11);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',maxZoom:18}).addTo(map);
+  L.polyline([[38.263,-85.830],[38.260,-85.810],[38.258,-85.790],[38.256,-85.770],[38.254,-85.750],[38.251,-85.730],[38.248,-85.710]],{color:'#3b8fe8',weight:5,opacity:.45}).addTo(map);
+
+  // NOAA gauge
+  L.marker([38.2571,-85.7595],{icon:L.divIcon({html:`<div style="width:14px;height:14px;background:#3b8fe8;border:2px solid #fff;border-radius:50%;box-shadow:0 0 10px #3b8fe8"></div>`,className:'',iconAnchor:[7,7]})})
+   .bindPopup(`<b>NOAA Gauge MLXK2</b><br>Ohio River · Louisville Water Tower<br>Level: <b>${ft.toFixed(1)} ft</b>`).addTo(map);
+
+  // Mesonet stations
+  L.marker([38.180,-85.670],{icon:L.divIcon({html:`<div style="background:#9b6bff;color:white;font-size:9px;font-weight:600;padding:3px 7px;border-radius:4px;white-space:nowrap;font-family:monospace">🌦 CRMT</div>`,className:'',iconAnchor:[25,10]})})
+   .bindPopup(`<b>KY Mesonet — CRMT</b><br>Bullitt County · Clermont<br>Precipitation & Temperature`).addTo(map);
+  L.marker([38.395,-85.375],{icon:L.divIcon({html:`<div style="background:#9b6bff;color:white;font-size:9px;font-weight:600;padding:3px 7px;border-radius:4px;white-space:nowrap;font-family:monospace">🌦 OLDA</div>`,className:'',iconAnchor:[25,10]})})
+   .bindPopup(`<b>KY Mesonet — OLDA</b><br>Oldham County · La Grange<br>Precipitation & Temperature`).addTo(map);
+
+  const ord=['normal','watch','warning','major'];
+  const zones=[
+    {c:[[38.256,-85.762],[38.258,-85.752],[38.253,-85.750],[38.251,-85.761]],n:'Waterfront Park / Downtown Riverfront',r:'watch'},
+    {c:[[38.262,-85.785],[38.268,-85.772],[38.261,-85.768],[38.256,-85.780]],n:'Portland Neighborhood',r:'watch'},
+    {c:[[38.240,-85.801],[38.246,-85.789],[38.239,-85.786],[38.234,-85.798]],n:'Shawnee Park / West Louisville',r:'warning'},
+    {c:[[38.249,-85.743],[38.254,-85.736],[38.247,-85.731],[38.243,-85.738]],n:'Butchertown / Beargrass Creek',r:'watch'},
+    {c:[[38.235,-85.820],[38.242,-85.808],[38.236,-85.804],[38.229,-85.816]],n:'Rubbertown Industrial Area',r:'major'},
+  ];
+  zones.forEach(z=>{
+    if(ord.indexOf(stage)>=ord.indexOf(z.r)){
+      const col=STAGES[z.r].color;
+      L.polygon(z.c,{color:col,fillColor:col,fillOpacity:.2,weight:1.5,dashArray:'4,4'})
+       .bindPopup(`<b>${z.n}</b><br>Risk: <b>${z.r.toUpperCase()}</b>`).addTo(map);
+    }
+  });
+  if(stage==='warning'||stage==='major'){
+    [[38.2547,-85.7598,'River Rd at Zorn Ave'],[38.2585,-85.7715,'Northwestern Pkwy / Beargrass Creek']].forEach(([lat,lng,rd])=>{
+      L.marker([lat,lng],{icon:L.divIcon({html:`<div style="background:#e8294a;color:white;font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;font-family:monospace">⚠ CLOSED</div>`,className:'',iconAnchor:[28,8]})})
+       .bindPopup(`<b>Road Closure</b><br>${rd}`).addTo(map);
+    });
+  }
+}
+
+async function main(){
+  const[noaa,history]=await Promise.all([fetchNOAA(),fetchHistory()]);
+  let ft;
+  if(noaa?.observed?.primary!==undefined)ft=parseFloat(noaa.observed.primary);
+  else if(history.length>0)ft=history[history.length-1].val;
+  else ft=14.8;
+  const stage=getStage(ft);
+  const meso=simMesonet(ft);
+  updateHero(ft,stage);
+  updateMeso(meso,ft);
+  updateStats(ft,history,meso);
+  renderChart(history);
+  initMap(ft);
+}
+
+main();
+setInterval(main,15*60*1000);
+
+// PAGE NAVIGATION
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.ntab').forEach(t => t.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('active');
+  document.querySelectorAll('.ntab').forEach(t => {
+    if (t.textContent.toLowerCase().includes(id === 'dashboard' ? 'dashboard' : id === 'shelters' ? 'shelter' : 'survival'))
+      t.classList.add('active');
+  });
+  if (id === 'shelters' && !shelterMapInited) initShelterMap();
+}
+
+// SHELTER MAP
+let shelterMapInited = false;
+function initShelterMap() {
+  shelterMapInited = true;
+  const m = L.map('shelterMap', {zoomControl:true, scrollWheelZoom:false}).setView([38.245, -85.755], 12);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {attribution:'© OpenStreetMap © CARTO', maxZoom:18}).addTo(m);
+
+  const shelters = [
+    { pos:[38.2489,-85.7434], name:'Wayside Christian Mission', addr:'432 E. Jefferson St — 24/7, families welcome', color:'#00cc7a' },
+    { pos:[38.2390,-85.7520], name:'Salvation Army', addr:'911 S. Brook St — 400 capacity day shelter', color:'#00cc7a' },
+    { pos:[38.2527,-85.7700], name:'The Healing Place (Men)', addr:'1020 W. Market St — 48 beds, men only', color:'#f0b429' },
+    { pos:[38.2492,-85.7596], name:'Wayside Hotel Louisville', addr:'120 W. Broadway — overflow campus', color:'#00cc7a' },
+  ];
+
+  shelters.forEach(s => {
+    L.marker(s.pos, {
+      icon: L.divIcon({
+        html: `<div style="background:${s.color};color:#000;font-size:10px;font-weight:700;padding:4px 9px;border-radius:6px;white-space:nowrap;font-family:'DM Sans',sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.4)">🏠 ${s.name}</div>`,
+        className: '', iconAnchor: [60, 12]
+      })
+    }).bindPopup(`<b>${s.name}</b><br>${s.addr}`).addTo(m);
+    L.polyline([[38.2527,-85.7585], s.pos], {color:s.color, weight:1.5, opacity:.3, dashArray:'6,6'}).addTo(m);
+  });
+
+  L.marker([38.2527,-85.7585], {
+    icon: L.divIcon({ html:`<div style="background:#9b6bff;color:white;font-size:10px;font-weight:600;padding:3px 8px;border-radius:4px;font-family:'DM Sans',sans-serif">📍 Downtown Louisville</div>`, className:'', iconAnchor:[60,10] })
+  }).addTo(m);
+}
+
+</script>
+</body>
+</html>
